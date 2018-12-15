@@ -27,6 +27,7 @@ var conns = pflag.Int("conns", 4, "Connections for media downloads")
 var apiKey = pflag.String("api-key", "", "API Key")
 var noMedia = pflag.Bool("no-media", false, "Don't save media")
 var globalMedia = pflag.Bool("global-media", false, "Save all media in the same dir")
+var noReblogs = pflag.Bool("no-reblogs", false, "Don't save media of reblogs")
 
 func main() {
 	if *noMedia {
@@ -89,7 +90,7 @@ func reqMetadata(blogUrl string, offset int) (body []byte, hasMore bool, err err
 			"api_key":     {*apiKey},
 			"limit":       {"20"},
 			"offset":      {fmt.Sprintf("%d", offset)},
-			"reblog_info": {"false"},
+			"reblog_info": {"true"},
 		}.Encode()
 
 		req, _ := http.NewRequest("GET", url_.String(), nil)
@@ -157,6 +158,10 @@ func reqMetadata(blogUrl string, offset int) (body []byte, hasMore bool, err err
 		}
 
 		for _, post := range posts {
+			if *noReblogs && post.Exists("reblogged_from_id") {
+				continue
+			}
+
 			postType := string(post.GetStringBytes("type"))
 			switch postType {
 			case "photo":
