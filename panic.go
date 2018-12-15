@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/cenkalti/backoff"
 	"github.com/spf13/pflag"
 	"github.com/valyala/fastjson"
 	"io"
@@ -71,42 +72,55 @@ func getBlog(blogUrl string) {
 }
 
 func reqMetadata(blogUrl string, offset int) (body []byte, hasMore bool, err error) {
-	url_, _ := url.Parse(fmt.Sprintf("https://api-http2.tumblr.com/v2/blog/%s.tumblr.com/posts",
-		blogUrl))
+	var url_ *url.URL
+	var res *http.Response
 
-	url_.RawQuery = url.Values{
-		"api_key":     {*apiKey},
-		"limit":       {"20"},
-		"offset":      {fmt.Sprintf("%d", offset)},
-		"reblog_info": {"false"},
-	}.Encode()
+	err = backoff.Retry(func() error {
+		url_, _ = url.Parse(fmt.Sprintf("https://api-http2.tumblr.com/v2/blog/%s.tumblr.com/posts",
+			blogUrl))
 
-	req, _ := http.NewRequest("GET", url_.String(), nil)
-	req.Header.Set("x-identifier-date", "1496497075")
-	req.Header.Set("accept", "*/*")
-	req.Header.Set("x-s-id-enabled", "true")
-	req.Header.Set("authorization", `OAuth oauth_signature="5X71iWQbsn%2FXSxSW5yM1Gfba9AY%3D",oauth_nonce="242E14AF-C965-40E1-8374-C4EEE2CC7DB6",oauth_timestamp="1544897447.000000",oauth_consumer_key="jrsCWX1XDuVxAFO4GkK147syAoN8BJZ5voz8tS80bPcj26Vc5Z",oauth_token="bzDmGY6IYfwE43WBj75Hz7ZDiBIzW1jfPYOHvYPu4AEyOtM0O6",oauth_version="1.0",oauth_signature_method="HMAC-SHA1"`)
-	req.Header.Set("yx", "1m6phjof3ocve")
-	req.Header.Set("x-yuser-agent", "YMobile/1.0 (com.tumblr.tumblr/11.7.1; iOS/11.3.1;; iPhone8,1; Apple;;; 1334x750;)")
-	req.Header.Set("x-version", "iPhone/11.7.1/117100/11.3.1/tumblr")
-	req.Header.Set("accept-language", "de-DE")
-	req.Header.Set("x-s-id", "Q0NBNUZEQzEtNUY3NC00QUFCLTlGQjMtMjY0OUNEMTNGN0VB")
-	req.Header.Set("di", "DI/1.0 (262; 02; [WIFI])")
-	//req.Header.Set("user-agent", "Tumblr/iPhone/11.7.1/117100/11.3.1/tumblr")
-	req.Header.Set("user-agent", "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)")
-	req.Header.Set("x-identifier", "16F9B3AC-8BEC-4D12-BFEE-E36AF38C2E13-495-0000003DA3273F80")
-	req.Header.Set("cookie", "tmgioct=5954158de4caf10117554050")
+		url_.RawQuery = url.Values{
+			"api_key":     {*apiKey},
+			"limit":       {"20"},
+			"offset":      {fmt.Sprintf("%d", offset)},
+			"reblog_info": {"false"},
+		}.Encode()
 
-	res, err := http.DefaultClient.Do(req)
+		req, _ := http.NewRequest("GET", url_.String(), nil)
+		req.Header.Set("x-identifier-date", "1496497075")
+		req.Header.Set("accept", "*/*")
+		req.Header.Set("x-s-id-enabled", "true")
+		req.Header.Set("authorization", `OAuth oauth_signature="5X71iWQbsn%2FXSxSW5yM1Gfba9AY%3D",oauth_nonce="242E14AF-C965-40E1-8374-C4EEE2CC7DB6",oauth_timestamp="1544897447.000000",oauth_consumer_key="jrsCWX1XDuVxAFO4GkK147syAoN8BJZ5voz8tS80bPcj26Vc5Z",oauth_token="bzDmGY6IYfwE43WBj75Hz7ZDiBIzW1jfPYOHvYPu4AEyOtM0O6",oauth_version="1.0",oauth_signature_method="HMAC-SHA1"`)
+		req.Header.Set("yx", "1m6phjof3ocve")
+		req.Header.Set("x-yuser-agent", "YMobile/1.0 (com.tumblr.tumblr/11.7.1; iOS/11.3.1;; iPhone8,1; Apple;;; 1334x750;)")
+		req.Header.Set("x-version", "iPhone/11.7.1/117100/11.3.1/tumblr")
+		req.Header.Set("accept-language", "de-DE")
+		req.Header.Set("x-s-id", "Q0NBNUZEQzEtNUY3NC00QUFCLTlGQjMtMjY0OUNEMTNGN0VB")
+		req.Header.Set("di", "DI/1.0 (262; 02; [WIFI])")
+		//req.Header.Set("user-agent", "Tumblr/iPhone/11.7.1/117100/11.3.1/tumblr")
+		req.Header.Set("user-agent", "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)")
+		req.Header.Set("x-identifier", "16F9B3AC-8BEC-4D12-BFEE-E36AF38C2E13-495-0000003DA3273F80")
+		req.Header.Set("cookie", "tmgioct=5954158de4caf10117554050")
+
+		res, err = http.DefaultClient.Do(req)
+		if err != nil {
+			println("Failed getting", url_.String(), err)
+			return err
+		}
+
+		if res.StatusCode != 200 {
+			println("Failed getting ", url_.String(), res.Status)
+			return fmt.Errorf("HTTP %s", res.Status)
+		}
+
+		return nil
+	}, backoff.NewExponentialBackOff())
 	if err != nil {
-		println("Failed getting", url_.String(), err)
+		println("Failed getting", err)
 		return nil, false, err
 	}
 
-	if res.StatusCode != 200 {
-		println("Failed getting ", url_.String(), res.Status)
-		return nil, false, fmt.Errorf("HTTP %s", res.Status)
-	}
+	println(url_.String())
 
 	f, err := os.OpenFile(filepath.Join(blogUrl, fmt.Sprintf("%d.json", offset)), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0666)
 	if err != nil {
@@ -160,8 +174,6 @@ func reqMetadata(blogUrl string, offset int) (body []byte, hasMore bool, err err
 	}
 
 	hasMore = len(posts) != 0
-
-	println(url_.String())
 
 	return body, hasMore, nil
 }
