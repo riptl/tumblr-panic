@@ -28,6 +28,7 @@ func main() {
 		os.MkdirAll("media", 0777)
 	}
 
+	wg.Add(*conns)
 	for i := 0; i < *conns; i++ {
 		go downloadWorker()
 	}
@@ -50,6 +51,7 @@ func main() {
 }
 
 func downloadWorker() {
+	defer wg.Done()
 	for job := range cdn {
 		downloadFile(job)
 	}
@@ -73,9 +75,9 @@ func reqMetadata(blogUrl string, offset int) (body []byte, hasMore bool, err err
 		blogUrl))
 
 	url_.RawQuery = url.Values{
-		"api_key": {*apiKey},
-		"limit": {"20"},
-		"offset": {fmt.Sprintf("%d", offset)},
+		"api_key":     {*apiKey},
+		"limit":       {"20"},
+		"offset":      {fmt.Sprintf("%d", offset)},
 		"reblog_info": {"false"},
 	}.Encode()
 
@@ -106,7 +108,7 @@ func reqMetadata(blogUrl string, offset int) (body []byte, hasMore bool, err err
 		return nil, false, fmt.Errorf("HTTP %s", res.Status)
 	}
 
-	f, err := os.OpenFile(filepath.Join(blogUrl, fmt.Sprintf("%d.json", offset)), os.O_CREATE |os.O_TRUNC |os.O_WRONLY, 0666)
+	f, err := os.OpenFile(filepath.Join(blogUrl, fmt.Sprintf("%d.json", offset)), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0666)
 	if err != nil {
 		println("shid", err.Error())
 		return nil, false, err
@@ -167,7 +169,7 @@ func reqMetadata(blogUrl string, offset int) (body []byte, hasMore bool, err err
 func downloadFile(url_ string) {
 	baseName := path.Base(url_)
 	fName := filepath.Join("media", baseName)
-	f, err := os.OpenFile(fName, os.O_CREATE | os.O_EXCL | os.O_WRONLY, 0666)
+	f, err := os.OpenFile(fName, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0666)
 	if os.IsExist(err) {
 		return
 	} else if err != nil {
