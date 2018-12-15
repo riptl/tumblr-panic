@@ -28,6 +28,7 @@ var apiKey = pflag.String("api-key", "", "API Key")
 var noMedia = pflag.Bool("no-media", false, "Don't save media")
 var globalMedia = pflag.Bool("global-media", false, "Save all media in the same dir")
 var noReblogs = pflag.Bool("no-reblogs", false, "Don't save media of reblogs")
+var likes = pflag.Bool("likes", false, "Save likes instead of posts")
 
 func main() {
 	if *noMedia {
@@ -83,8 +84,15 @@ func reqMetadata(blogUrl string, offset int) (body []byte, hasMore bool, err err
 	var res *http.Response
 
 	err = backoff.Retry(func() error {
-		url_, _ = url.Parse(fmt.Sprintf("https://api-http2.tumblr.com/v2/blog/%s.tumblr.com/posts",
-			blogUrl))
+		var action string
+		if *likes {
+			action = "likes"
+		} else {
+			action = "posts"
+		}
+
+		url_, _ = url.Parse(fmt.Sprintf("https://api-http2.tumblr.com/v2/blog/%s.tumblr.com/%s",
+			blogUrl, action))
 
 		url_.RawQuery = url.Values{
 			"api_key":     {*apiKey},
@@ -129,7 +137,13 @@ func reqMetadata(blogUrl string, offset int) (body []byte, hasMore bool, err err
 
 	println(url_.String())
 
-	f, err := os.OpenFile(filepath.Join(blogUrl, fmt.Sprintf("%d.json", offset)), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0666)
+	var jsonFile string
+	if *likes {
+		jsonFile = fmt.Sprintf("likes-%d.json", offset)
+	} else {
+		jsonFile = fmt.Sprintf("%d.json", offset)
+	}
+	f, err := os.OpenFile(filepath.Join(blogUrl, jsonFile), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0666)
 	if err != nil {
 		println("shid", err.Error())
 		return nil, false, err
@@ -151,7 +165,12 @@ func reqMetadata(blogUrl string, offset int) (body []byte, hasMore bool, err err
 	}
 
 	// Unclean AF
-	posts := js.GetArray("response", "posts")
+	var posts []*fastjson.Value
+	if *likes {
+		posts = js.GetArray("response", "liked_posts")
+	} else {
+		posts = js.GetArray("response", "posts")
+	}
 	if !*noMedia {
 		if !*globalMedia {
 			os.MkdirAll(filepath.Join(blogUrl, "media"), 0777)
