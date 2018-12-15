@@ -7,6 +7,7 @@ Usage of ./tumblr-panic:
       --api-key string   API Key
       --conns int        Connections for media downloads (default 4)
       --no-media         Don't save media
+      <blog-name-1> <blog-name-2> ... <blog-name-n>
 ```
 
 Media is saved in flat dir `/media`.

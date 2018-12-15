@@ -15,17 +15,23 @@ import (
 	"sync"
 )
 
-var cdn = make(chan string)
+type job struct {
+	blogName string
+	url_     string
+}
+
+var cdn = make(chan job)
 var wg sync.WaitGroup
 
 var conns = pflag.Int("conns", 4, "Connections for media downloads")
 var apiKey = pflag.String("api-key", "", "API Key")
 var noMedia = pflag.Bool("no-media", false, "Don't save media")
+var globalMedia = pflag.Bool("global-media", false, "Save all media in the same dir")
 
 func main() {
 	if *noMedia {
 		*conns = 0
-	} else {
+	} else if *globalMedia {
 		os.MkdirAll("media", 0777)
 	}
 
@@ -54,7 +60,7 @@ func main() {
 func downloadWorker() {
 	defer wg.Done()
 	for job := range cdn {
-		downloadFile(job)
+		downloadFile(job.blogName, job.url_)
 	}
 }
 
@@ -146,6 +152,10 @@ func reqMetadata(blogUrl string, offset int) (body []byte, hasMore bool, err err
 	// Unclean AF
 	posts := js.GetArray("response", "posts")
 	if !*noMedia {
+		if !*globalMedia {
+			os.MkdirAll(filepath.Join(blogUrl, "media"), 0777)
+		}
+
 		for _, post := range posts {
 			postType := string(post.GetStringBytes("type"))
 			switch postType {
@@ -155,20 +165,20 @@ func reqMetadata(blogUrl string, offset int) (body []byte, hasMore bool, err err
 					if url_ == "" {
 						continue
 					}
-					cdn <- url_
+					cdn <- job{blogUrl, url_}
 				}
 			case "video":
 				videoType := string(post.GetStringBytes("video_type"))
 				if videoType == "tumblr" {
 					videoUrl := string(post.GetStringBytes("video_url"))
-					cdn <- videoUrl
+					cdn <- job{blogUrl, videoUrl}
 				}
 			case "audio":
 				audioUrl := string(post.GetStringBytes("audio_url"))
 				if audioUrl == "" {
 					audioUrl = string(post.GetStringBytes("audio_source_url"))
 				}
-				cdn <- audioUrl
+				cdn <- job{blogUrl, audioUrl}
 			}
 		}
 	}
@@ -178,9 +188,14 @@ func reqMetadata(blogUrl string, offset int) (body []byte, hasMore bool, err err
 	return body, hasMore, nil
 }
 
-func downloadFile(url_ string) {
+func downloadFile(blogName string, url_ string) {
 	baseName := path.Base(url_)
-	fName := filepath.Join("media", baseName)
+	var fName string
+	if *globalMedia {
+		fName = filepath.Join("media", baseName)
+	} else {
+		fName = filepath.Join(blogName, "media", baseName)
+	}
 	f, err := os.OpenFile(fName, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0666)
 	if os.IsExist(err) {
 		return
