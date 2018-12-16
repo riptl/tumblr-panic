@@ -220,13 +220,6 @@ func downloadFile(blogName string, url_ string) {
 	} else {
 		fName = filepath.Join(blogName, "media", baseName)
 	}
-	f, err := os.OpenFile(fName, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0666)
-	if os.IsExist(err) {
-		return
-	} else if err != nil {
-		println(err)
-		return
-	}
 
 	res, err := http.Get(url_)
 	if err != nil {
@@ -237,6 +230,14 @@ func downloadFile(blogName string, url_ string) {
 
 	if res.StatusCode != 200 {
 		println("STATUS CODE", res.Status, url_)
+		return
+	}
+
+	f, err := os.OpenFile(fName, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0666)
+	if os.IsExist(err) {
+		return
+	} else if err != nil {
+		println(err)
 		return
 	}
 
