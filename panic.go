@@ -235,10 +235,14 @@ func downloadFile(blogName string, url_ string) {
 		log.Printf(`❌ Failed to download media ("%s"): %s`, url_, err)
 		return
 	}
+	defer f.Close()
 
 	_, err = io.Copy(f, res.Body)
 	if err != nil {
 		log.Printf(`❌ Failed to download media ("%s"): %s`, url_, err)
+		// Try to delete failed file
+		f.Close()
+		os.Remove(fName)
 		return
 	}
 
