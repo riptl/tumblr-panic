@@ -7,6 +7,7 @@ import (
 	"github.com/valyala/fastjson"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -34,7 +35,9 @@ func main() {
 	if *noMedia {
 		*conns = 0
 	} else if *globalMedia {
-		os.MkdirAll("media", 0777)
+		if err := os.MkdirAll("media", 0777); err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	wg.Add(*conns)
@@ -48,13 +51,7 @@ func main() {
 	defer close(cdn)
 
 	for _, blogName := range pflag.Args() {
-		println("################")
-		println("## NEXT  BLOG ##")
-		println("################")
-		println()
-		println(blogName)
-		println()
-		println()
+		log.Printf(`✳️ Starting archiver on "%s"`, blogName)
 		getBlog(blogName)
 	}
 }
@@ -67,20 +64,24 @@ func downloadWorker() {
 }
 
 func getBlog(blogUrl string) {
-	os.MkdirAll(blogUrl, 0777)
+	if err := os.MkdirAll(blogUrl, 0777); err != nil {
+		log.Printf(`❌ Failed to create blog directory: %s`, err)
+		return
+	}
 
-	var hasMore bool = true
+	hasMore := true
 	for offset := 0; hasMore; offset += 20 {
 		var err error
 		_, hasMore, err = reqMetadata(blogUrl, offset)
 		if err != nil {
+			log.Printf(`❌ Aborting at page %d of "%s": %s`, offset, blogUrl, err)
 			break
 		}
 	}
 }
 
 func reqMetadata(blogUrl string, offset int) (body []byte, hasMore bool, err error) {
-	var url_ *url.URL
+	var u *url.URL
 	var res *http.Response
 
 	err = backoff.Retry(func() error {
@@ -91,45 +92,44 @@ func reqMetadata(blogUrl string, offset int) (body []byte, hasMore bool, err err
 			action = "posts"
 		}
 
-		url_, _ = url.Parse(fmt.Sprintf("https://api-http2.tumblr.com/v2/blog/%s.tumblr.com/%s",
+		u, _ = url.Parse(fmt.Sprintf("https://api-http2.tumblr.com/v2/blog/%s.tumblr.com/%s",
 			blogUrl, action))
 
-		url_.RawQuery = url.Values{
+		u.RawQuery = url.Values{
 			"api_key":     {*apiKey},
 			"limit":       {"20"},
 			"offset":      {fmt.Sprintf("%d", offset)},
 			"reblog_info": {"true"},
 		}.Encode()
 
-		req, _ := http.NewRequest("GET", url_.String(), nil)
+		req, _ := http.NewRequest("GET", u.String(), nil)
 		req.Header.Set("accept", "*/*")
 		req.Header.Set("x-s-id-enabled", "true")
 		req.Header.Set("x-yuser-agent", "YMobile/1.0 (com.tumblr.tumblr/11.7.1; iOS/11.3.1;; iPhone8,1; Apple;;; 1334x750;)")
 		req.Header.Set("x-version", "iPhone/11.7.1/117100/11.3.1/tumblr")
-		req.Header.Set("x-s-id", "Q0NBNUZEQzEtNUY3NC00QUFCLTlGQjMtMjY0OUNEMTNGN0VB")
 		req.Header.Set("di", "DI/1.0 (262; 02; [WIFI])")
 		//req.Header.Set("user-agent", "Tumblr/iPhone/11.7.1/117100/11.3.1/tumblr")
 		req.Header.Set("user-agent", "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)")
 
 		res, err = http.DefaultClient.Do(req)
 		if err != nil {
-			println("Failed getting", url_.String(), err)
+			log.Printf(`❌️ Failed to get metadata ("%s"): %s`, u.String(), err)
 			return err
 		}
 
 		if res.StatusCode != 200 {
-			println("Failed getting ", url_.String(), res.Status)
+			log.Printf(`❌️ Failed to get metadata ("%s"), non-OK HTTP status: %s`, u.String(), res.Status)
 			return fmt.Errorf("HTTP %s", res.Status)
 		}
 
 		return nil
 	}, backoff.NewExponentialBackOff())
 	if err != nil {
-		println("Failed getting", err)
+		log.Printf(`⚠️ All attempts to get metadata ("%s") failed`, u.String())
 		return nil, false, err
 	}
 
-	println(url_.String())
+	log.Printf(`ℹ️ Requested "%s"`, u.String())
 
 	var jsonFile string
 	if *likes {
@@ -139,14 +139,13 @@ func reqMetadata(blogUrl string, offset int) (body []byte, hasMore bool, err err
 	}
 	f, err := os.OpenFile(filepath.Join(blogUrl, jsonFile), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0666)
 	if err != nil {
-		println("shid", err.Error())
 		return nil, false, err
 	}
 	defer f.Close()
 
 	body, err = ioutil.ReadAll(io.TeeReader(res.Body, f))
 	if err != nil {
-		println("Failed getting", url_.String(), err.Error())
+		log.Printf(`❌ Failed to download metadata ("%s"): %s`, u.String(), err)
 		return nil, false, err
 	}
 
@@ -154,7 +153,7 @@ func reqMetadata(blogUrl string, offset int) (body []byte, hasMore bool, err err
 
 	js, err := p.ParseBytes(body)
 	if err != nil {
-		println("Failed getting", url_.String(), err.Error())
+		log.Printf(`❌ Failed to parse metadata ("%s"): %s`, u.String(), err)
 		return nil, false, err
 	}
 
@@ -167,7 +166,9 @@ func reqMetadata(blogUrl string, offset int) (body []byte, hasMore bool, err err
 	}
 	if !*noMedia {
 		if !*globalMedia {
-			os.MkdirAll(filepath.Join(blogUrl, "media"), 0777)
+			if err := os.MkdirAll(filepath.Join(blogUrl, "media"), 0777); err != nil {
+				return nil, false, err
+			}
 		}
 
 		for _, post := range posts {
@@ -217,13 +218,13 @@ func downloadFile(blogName string, url_ string) {
 
 	res, err := http.Get(url_)
 	if err != nil {
-		println(err)
+		log.Printf(`❌ Failed to request media ("%s"): %s`, url_, err)
 		return
 	}
 	defer res.Body.Close()
 
 	if res.StatusCode != 200 {
-		println("STATUS CODE", res.Status, url_)
+		log.Printf(`❌️ Failed to get metadata ("%s"), non-OK HTTP status: %s`, url_, res.Status)
 		return
 	}
 
@@ -231,17 +232,17 @@ func downloadFile(blogName string, url_ string) {
 	if os.IsExist(err) {
 		return
 	} else if err != nil {
-		println(err)
+		log.Printf(`❌ Failed to download media ("%s"): %s`, url_, err)
 		return
 	}
-
-	println(url_)
 
 	_, err = io.Copy(f, res.Body)
 	if err != nil {
-		println(err)
+		log.Printf(`❌ Failed to download media ("%s"): %s`, url_, err)
 		return
 	}
+
+	log.Printf(`🆗 Got media: %s`, url_)
 
 	return
 }
