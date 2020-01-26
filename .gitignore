@@ -1,4 +1,6 @@
 /*
 !README.md
 !*.go
+!go.mod
+!go.sum
 !.gitignore
